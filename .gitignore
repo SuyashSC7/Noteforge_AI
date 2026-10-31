@@ -1,5 +1,4 @@
-   noteforge
-   notforge
-   r_test
-   *.o
-  
+noteforge
+notforge
+r_test
+*.o
