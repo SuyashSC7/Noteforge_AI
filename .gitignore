@@ -2,3 +2,5 @@ noteforge
 notforge
 r_test
 *.o
+output
+.venv
