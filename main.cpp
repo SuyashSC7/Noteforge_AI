@@ -45,6 +45,40 @@ const string QUIZ_PROMPT =
     "Do not put letters like A) in front of the options. "
     "Do not invent facts that are not in the files.";
 
+const string paper_prompt =
+"You are an experienced university examination paper setter. Generate a realistic 30-mark engineering question paper using ONLY the study materials and files provided.\n\n"
+
+"Follow these instructions:\n"
+"1. The total paper must carry exactly 30 marks.\n"
+"2. Follow a university-style examination format with proper sections, question numbering, and marks allocation.\n"
+"3. Include a balanced mix of question types:\n"
+"   - Short-answer questions (2 marks).\n"
+"   - Conceptual and descriptive questions (4 marks).\n"
+"   - Long-answer or problem-solving questions (6 marks).\n"
+"4. Cover all major topics from the provided resources proportionately.\n"
+"5. Include a mix of easy, moderate, and difficult questions.\n"
+"6. Give importance to definitions, explanations, diagrams, derivations, numerical problems, comparisons, and applications wherever relevant to the subject.\n"
+"7. Frame questions in a manner similar to actual engineering university examinations.\n"
+"8. Avoid repeating the same concept across multiple questions unless testing it from a different perspective.\n"
+"9. Ensure every question is answerable using the provided resources.\n"
+"10. Do not introduce external topics, facts, or questions unrelated to the uploaded material.\n"
+"11. Clearly mention the marks assigned to every question and sub-question.\n"
+"12. Verify that the marks of all compulsory questions add up to exactly 30.\n"
+"13. If internal choices are provided, ensure students can attempt questions worth exactly 30 marks.\n"
+"14. Do not include answers, solutions, hints, or explanations in the question paper.\n"
+"15. If the provided resources are insufficient to generate a complete 30-mark paper, mention the limitation instead of inventing questions.\n\n"
+
+"OUTPUT FORMAT:\n"
+"1. University/Examination-style heading.\n"
+"2. Subject name (if available in the resources).\n"
+"3. Maximum Marks: 30.\n"
+"4. Time: 1 Hour 30 Minutes.\n"
+"5. General instructions.\n"
+"6. Questions arranged in sections with marks clearly indicated.\n\n"
+
+"Generate only the question paper in clean, properly formatted Markdown."
+;
+
 //for tracking history
 json history=json::array();
 
@@ -470,6 +504,7 @@ void quiz(){
 int main(int argc,char* argv[]){
 
     //to check whther file is specified
+    
     if ( argc<2 ){
         cerr<<"folder for resources not there\n";
         return 1;
@@ -531,6 +566,10 @@ int main(int argc,char* argv[]){
             else if ( prompt == "quiz" ){
                 quiz();
                 continue;
+            }
+
+            else if ( prompt == "paper" ){
+                generate(paper_prompt,"output/paper.md");
             }
             
             history.push_back({
