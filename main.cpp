@@ -341,7 +341,7 @@ void generate(const string& instructions, const fs::path& outfile){
 
     }
     if ( savetofile(outfile,response)){
-        cout << "notes saved to " << outfile.string() << '\n';
+        cout << "output saved to " << outfile.string() << '\n';
     }
     return;
 }
@@ -370,6 +370,7 @@ json parsequiz(const string& response){
         return json::array();
     }
 }
+
 json validate_quiz(const json& questions){
     json clean = json::array();
 
@@ -570,6 +571,7 @@ int main(int argc,char* argv[]){
 
             else if ( prompt == "paper" ){
                 generate(paper_prompt,"output/paper.md");
+                continue;
             }
             
             history.push_back({
