@@ -46,38 +46,33 @@ const string QUIZ_PROMPT =
     "Do not invent facts that are not in the files.";
 
 const string paper_prompt =
-"You are an experienced university examination paper setter. Generate a realistic 30-mark engineering question paper using ONLY the study materials and files provided.\n\n"
+"You are an experienced university examination paper setter. Generate a realistic 30-mark engineering question paper using ONLY the study materials and files provided above.\n\n"
 
 "Follow these instructions:\n"
-"1. The total paper must carry exactly 30 marks.\n"
-"2. Follow a university-style examination format with proper sections, question numbering, and marks allocation.\n"
-"3. Include a balanced mix of question types:\n"
-"   - Short-answer questions (2 marks).\n"
-"   - Conceptual and descriptive questions (4 marks).\n"
-"   - Long-answer or problem-solving questions (6 marks).\n"
-"4. Cover all major topics from the provided resources proportionately.\n"
-"5. Include a mix of easy, moderate, and difficult questions.\n"
-"6. Give importance to definitions, explanations, diagrams, derivations, numerical problems, comparisons, and applications wherever relevant to the subject.\n"
-"7. Frame questions in a manner similar to actual engineering university examinations.\n"
-"8. Avoid repeating the same concept across multiple questions unless testing it from a different perspective.\n"
-"9. Ensure every question is answerable using the provided resources.\n"
-"10. Do not introduce external topics, facts, or questions unrelated to the uploaded material.\n"
-"11. Clearly mention the marks assigned to every question and sub-question.\n"
-"12. Verify that the marks of all compulsory questions add up to exactly 30.\n"
-"13. If internal choices are provided, ensure students can attempt questions worth exactly 30 marks.\n"
-"14. Do not include answers, solutions, hints, or explanations in the question paper.\n"
-"15. If the provided resources are insufficient to generate a complete 30-mark paper, mention the limitation instead of inventing questions.\n\n"
+"1. The paper must carry exactly 30 marks, with this exact structure and no other:\n"
+"   - Section A: 3 questions of 2 marks each (short answer) = 6 marks.\n"
+"   - Section B: 3 questions of 4 marks each (conceptual and descriptive) = 12 marks.\n"
+"   - Section C: 2 questions of 6 marks each (long answer or problem solving) = 12 marks.\n"
+"2. There is no internal choice. Every question is compulsory.\n"
+"3. Use university-style formatting with section headings and continuous question numbering (Q1, Q2, ...).\n"
+"4. Cover all major topics in the provided files proportionately, and mix easy, moderate and difficult questions.\n"
+"5. Include definitions, explanations, derivations, numerical problems, diagrams, comparisons or applications only where the files actually contain them.\n"
+"6. Avoid repeating the same concept across questions unless it is tested from a different angle.\n"
+"7. Every question must be answerable using the provided files. Do not introduce outside topics or facts.\n"
+"8. Write the marks next to every question, for example [2 marks].\n"
+"9. Do not include answers, solutions, hints or explanations.\n"
+"10. If the files are not enough to build a complete 30-mark paper, say so plainly instead of inventing questions.\n\n"
 
 "OUTPUT FORMAT:\n"
-"1. University/Examination-style heading.\n"
-"2. Subject name (if available in the resources).\n"
-"3. Maximum Marks: 30.\n"
-"4. Time: 1 Hour 30 Minutes.\n"
-"5. General instructions.\n"
-"6. Questions arranged in sections with marks clearly indicated.\n\n"
+"1. A university examination style heading.\n"
+"2. Subject: the subject name if the files make it clear, otherwise write 'Subject: ________'.\n"
+"3. Maximum Marks: 30\n"
+"4. Time: 1 Hour 30 Minutes\n"
+"5. A short list of general instructions.\n"
+"6. Sections A, B and C with their questions and marks.\n"
+"7. At the end, a Markdown table titled 'Marks Distribution' with the columns Section, Questions, Marks per question and Total, one row per section, and a final row showing the grand total of 30.\n\n"
 
-"Generate only the question paper in clean, properly formatted Markdown."
-;
+"Output only the question paper in clean Markdown, with no commentary before or after it.";
 
 //for tracking history
 json history=json::array();
