@@ -16,6 +16,7 @@ namespace fs= std::filesystem;
 
 const string PYTHON = "/Users/suyashsudhakarchavan/Desktop/projects/noteforge_ai/.venv/bin/python3";
 const string SCRIPT = "/Users/suyashsudhakarchavan/Desktop/projects/noteforge_ai/extract.py";
+const size_t token_budget = 20000;
 
 const string notes_prompt =
 "You are an academic notes generator. Using ONLY the files provided, create comprehensive, structured, and exam-oriented study notes in Markdown.\n\n"
@@ -74,8 +75,83 @@ const string paper_prompt =
 
 "Output only the question paper in clean Markdown, with no commentary before or after it.";
 
+
+
+size_t total_token = 0;
+
+
+size_t adjust_to_char_boundary(const string& text, size_t pos){
+    while (pos>0 && pos<text.size() && (static_cast<unsigned char>(text[pos])&0xc0)==0x80){
+        pos--;
+    }
+    return pos;
+}
+
+
+size_t find_cut(const string& text, size_t start, size_t max_chars){
+    size_t end = start + max_chars;
+    if (end >= text.size()) return text.size();
+
+    size_t window_start = start + max_chars* 8/10;
+
+    vector<pair<string,size_t>> seps = {
+        {"\f", 1}, {"\n--- Slide", 1}, {"\n\n", 2}, {"\n", 1}, {". ", 2}, {" ", 1}
+    };
+
+    for (const auto& [sep, stays] : seps){
+        size_t position = text.rfind(sep,end-sep.size());
+        if (position<=end && position>=window_start){
+            return position;
+        }
+        size_t cut = position + stays;
+        if (cut >= window_start) return cut;
+    }
+
+    return adjust_to_char_boundary(text,end);
+}
+
+
+vector<string> chunk_text( const string& text , size_t max_chars , size_t overlap_chars){
+    size_t i = 0;
+    vector<string> chunked_text;
+    
+    if( max_chars==0 ){
+        cerr<<"could not process chunks wrong parameter passed\n";
+        return chunked_text;
+    }
+
+    if(overlap_chars>=max_chars){
+        cerr<<"wrong parameters passed readjusted the overlap \n";
+        overlap_chars=max_chars/10;
+    }
+
+    while ( i< text.size() ){
+        size_t cut= find_cut(text,i,max_chars);
+        chunked_text.push_back(text.substr(i,cut-i));
+
+        if (cut >= text.size()){
+            break;
+        }
+
+        size_t next= cut - overlap_chars;
+
+        if (next<=i) next=cut;
+
+        i=adjust_to_char_boundary(text,next); 
+        
+    }
+
+    return chunked_text;
+
+}
+
 //for tracking history
 json history=json::array();
+
+
+size_t estimate_tokens( const string& text ){
+    return text.size()/4;
+}
 
 
 bool savetofile(const fs::path& path , const string& text){
@@ -100,6 +176,7 @@ bool savetofile(const fs::path& path , const string& text){
     file << text;
     return file.good();
 }
+
 
 vector<fs::path> findtextfile(const string& folder){
     
@@ -225,6 +302,7 @@ string askai(const json& history, bool show = true){
     return full;
 }
 
+
 string run_comand(const string& cmd , int& status){
     FILE* pipe=popen(cmd.c_str(),"r");
 
@@ -246,6 +324,7 @@ string run_comand(const string& cmd , int& status){
     return output;
 }
 
+
 string shellquote(const string& s){
     string out="'";
     for (char c: s){
@@ -259,6 +338,7 @@ string shellquote(const string& s){
     out += "'";
     return out;
 }
+
 
 string extract_text(const fs::path& p) {
     string ext = p.extension().string();
@@ -305,8 +385,18 @@ string extract_text(const fs::path& p) {
     return "";
 }
 
+
 void readfile(const fs::path& p) {
     string text = extract_text(p);
+
+    size_t tokens= estimate_tokens(text);
+    total_token += tokens;
+
+    cout<<"estimated token usage for "<< p.filename().string() << " is " << tokens <<"\n";
+
+    if ( total_token> token_budget){
+        cerr << "the total tokens spent on resources scaning alone is more then the token budget please select a bigger model. \n ";
+    }
 
     if (text.empty()) {
         cerr << "skipped (no text): " << p.filename().string() << '\n';
@@ -318,6 +408,7 @@ void readfile(const fs::path& p) {
         {"content", "file name: " + p.filename().string() + "\n" + text + "\n"}
     });
 }
+
 
 void generate(const string& instructions, const fs::path& outfile){
     json request=history;
@@ -331,7 +422,7 @@ void generate(const string& instructions, const fs::path& outfile){
     cout<<"\n";
 
     if (response.empty()){
-        cerr << "could not generate notes \n";
+        cerr << "could not generate output \n";
         return;
 
     }
@@ -340,7 +431,6 @@ void generate(const string& instructions, const fs::path& outfile){
     }
     return;
 }
-
 
 
 json parsequiz(const string& response){
@@ -365,6 +455,7 @@ json parsequiz(const string& response){
         return json::array();
     }
 }
+
 
 json validate_quiz(const json& questions){
     json clean = json::array();
@@ -408,6 +499,7 @@ json validate_quiz(const json& questions){
     return clean;
 }
 
+
 // returns 1-4, or 0 if the user quits / input ends
 int readchoice(){
     while (true){
@@ -422,6 +514,7 @@ int readchoice(){
         cout << "please type 1, 2, 3 or 4 (or q to quit)\n";
     }
 }
+
 
 void quiz(){
     json request = history;
@@ -497,6 +590,7 @@ void quiz(){
     }
 }
 
+
 int main(int argc,char* argv[]){
 
     //to check whther file is specified
@@ -531,6 +625,8 @@ int main(int argc,char* argv[]){
         readfile(file);
     }
     json base = history;
+
+    cout << "total tokens spend : " << total_token << " , budget : " << token_budget << "\n" ;
 
 
     while (true){
@@ -592,5 +688,3 @@ int main(int argc,char* argv[]){
 
     return 0;
 }
-
-
