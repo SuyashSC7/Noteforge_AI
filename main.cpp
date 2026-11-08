@@ -9,6 +9,10 @@
 #include <cstdio>
 #include <algorithm>
 #include <vector>
+#include <set>
+#include <cctype>
+#include <numeric>
+
 
 using namespace std;
 using json= nlohmann::json;
@@ -17,6 +21,29 @@ namespace fs= std::filesystem;
 const string PYTHON = "/Users/suyashsudhakarchavan/Desktop/projects/noteforge_ai/.venv/bin/python3";
 const string SCRIPT = "/Users/suyashsudhakarchavan/Desktop/projects/noteforge_ai/extract.py";
 const size_t token_budget = 20000;
+
+const set<string> STOP_WORDS = {
+    "the", "and", "for", "are", "what", "which", "that", "this", "with",
+    "from", "how", "why", "when", "where", "does", "about", "explain", "give",
+
+    "a", "an", "is", "am", "was", "were", "be", "been", "being",
+    "to", "of", "in", "on", "at", "by", "as", "or", "but",
+    "if", "then", "than", "so", "not", "no", "yes",
+    "it", "its", "he", "she", "they", "them", "their",
+    "we", "you", "your", "i", "me", "my", "our",
+    "do", "did", "doing", "done", "have", "has", "had",
+    "can", "could", "would", "should", "will", "shall",
+    "may", "might", "must",
+    "there", "here", "all", "any", "some", "each", "every",
+    "also", "just", "only", "very", "more", "most", "much",
+    "many", "such", "other", "another", "same",
+    "into", "over", "under", "between", "through",
+    "up", "down", "out", "off", "again",
+    "because", "while", "during", "before", "after",
+    "get", "got", "make", "made", "use", "used",
+    "explain", "describe", "define", "discuss", "write",
+    "show", "tell", "provide", "find", "list"
+};
 
 const string notes_prompt =
 "You are an academic notes generator. Using ONLY the files provided, create comprehensive, structured, and exam-oriented study notes in Markdown.\n\n"
@@ -103,9 +130,95 @@ struct Chunk{
 };
 
 vector<Chunk> chunks;
+vector<pair<string, string>> documents;     // (filename, full text)
 
 
 size_t total_token = 0;
+
+void add_keywords(string& word, set<string>& keywords){
+    if (word.size()>=3 && STOP_WORDS.count(word)==0){
+        keywords.insert(word);
+    }
+
+    word.clear();
+}
+
+
+set<string> extract_keywords(const string& question){
+    set<string> keywords;
+
+    string word;
+
+    for (char c:question){
+        if (isalnum(static_cast<unsigned char>(c))){
+            word+= static_cast<char>(tolower(static_cast<unsigned char>(c)));
+        }
+        else{
+            add_keywords(word, keywords);
+        }
+    }
+    add_keywords(word,keywords);
+
+    return keywords;
+}
+
+
+string to_lower(string s){
+    transform(s.begin(),s.end(),s.begin(), ::tolower);
+    return s;
+}
+
+size_t score_chunk(const Chunk& ch, const set<string>& keywords){
+    size_t score=0;
+    string name=to_lower(ch.filename);
+    string summ=to_lower(ch.summary);
+    string text=to_lower(ch.text);
+
+    for ( const auto& keyword:keywords){
+        if (name.find(keyword) != string::npos) score+=3;
+
+        if (summ.find(keyword) != string::npos) score+=2;
+
+        if (text.find(keyword) != string::npos) score+=1;
+    }
+
+    return score;
+    
+}
+
+vector<size_t> retrieve(const string& questions, size_t token_limit){
+    set<string> keywords= extract_keywords(questions);
+
+    vector<size_t> scores(chunks.size());
+
+    for (size_t i=0;i<chunks.size();i++){
+        scores[i]=score_chunk(chunks[i],keywords);
+    }
+
+    vector<size_t> order(chunks.size());
+
+    iota(order.begin(), order.end(),0);
+    sort(order.begin(),order.end(), [&](size_t a, size_t b){
+        if (scores[a] != scores[b]) return scores[a]>scores[b];
+        return a<b;
+    });
+
+    vector<size_t> picked;
+
+    size_t used=0;
+    for ( size_t idx: order){
+        if (scores[idx]==0){
+            break;
+        }
+        if ( used+chunks[idx].tokens>token_limit){
+            continue;
+        }
+        
+        picked.push_back(idx);
+        used+=chunks[idx].tokens;
+    }
+    return picked;
+}
 
 
 size_t adjust_to_char_boundary(const string& text, size_t pos){
@@ -473,7 +586,7 @@ void summarize_all_chunks(){
         }
         ch.summary = summary;
 
-            }
+    }
 }
 
 
@@ -659,8 +772,6 @@ void quiz(){
 
 
 int main(int argc,char* argv[]){
-    
-    //to check whther file is specified
     
     if ( argc<2 ){
         cerr<<"folder for resources not there\n";
