@@ -12,6 +12,8 @@
 #include <set>
 #include <cctype>
 #include <numeric>
+#include <thread>
+#include <chrono>
 
 
 using namespace std;
@@ -128,6 +130,13 @@ struct Chunk{
     string summary;
     bool useful;
 };
+
+struct AiResult{
+    string text;
+    int status=0;
+    string error;
+};
+
 
 vector<Chunk> chunks;
 vector<pair<string, string>> documents;     // (filename, full text)
@@ -339,13 +348,13 @@ vector<fs::path> findtextfile(const string& folder){
 }
 
 //api call
-string askai(const json& history, bool show = true){
+AiResult askai_once(const json& history, bool show = true){
     
     const char* key= getenv("groq_api");        //key in the envirnment variable of system
 
     if (key==nullptr){
         cerr<<"no api key\n";
-        return "";
+        return {"",-1,"no api key"};
     }
 
     string url = "https://api.groq.com/openai/v1/chat/completions";
@@ -428,15 +437,41 @@ string askai(const json& history, bool show = true){
     );
 
     if (res.error){
-        cerr<<"network error"<<res.error.message<<'\n';
-        return "";
+        return {"",0,res.error.message};
     }
 
     if ( res.status_code != 200){
-        cerr<<"http error"<< res.status_code<<'\n'<<rawbody<<'\n';
-        return "";
+        return {"",(int)res.status_code, rawbody};
     }
-    return full;
+    return {full,200,""};
+}
+
+
+string askai(const json&history, bool show=true){
+    int wait_seconds=2;
+
+    for (int attempt=1; attempt<=4 ; attempt++){
+        AiResult r= askai_once(history,show);
+
+        if (r.status==200){
+            return r.text;
+        }
+
+        if (r.status==429 && attempt<4){
+            cerr<<"rate limited, waiting " << wait_seconds << " s (attempt " << attempt << "/4)\n";
+            this_thread::sleep_for(chrono::seconds(wait_seconds));
+            wait_seconds*=2;
+            continue;
+        }
+        
+        else{
+            cerr<< "status code :"<< r.status <<'\n';
+            cerr<< "error message :"<<r.error <<'\n';
+            return "";
+        }
+
+    }
+    return "";
 }
 
 
