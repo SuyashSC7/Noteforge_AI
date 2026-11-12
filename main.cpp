@@ -14,6 +14,7 @@
 #include <numeric>
 #include <thread>
 #include <chrono>
+#include <cstdint>
 
 
 using namespace std;
@@ -23,6 +24,9 @@ namespace fs= std::filesystem;
 const string PYTHON = "/Users/suyashsudhakarchavan/Desktop/projects/noteforge_ai/.venv/bin/python3";
 const string SCRIPT = "/Users/suyashsudhakarchavan/Desktop/projects/noteforge_ai/extract.py";
 const size_t token_budget = 20000;
+
+
+const fs::path CACHE_FILE = "cache/summaries.json";
 
 const set<string> STOP_WORDS = {
     "the", "and", "for", "are", "what", "which", "that", "this", "with",
@@ -601,27 +605,87 @@ string summarize_chunk(const string& text){
 }
 
 
+string fingerprint(const string& text){
+    uint64_t h = 1469598103934665603ULL;     // FNV-1a starting value
+    for (unsigned char c : text){
+        h ^= c;                              // mix in one byte
+        h *= 1099511628211ULL;               // multiply by the FNV prime
+    }
+    return to_string(h);
+}
+
+
+json load_cache(){
+    ifstream file(CACHE_FILE);
+    if (!file) return json::object();            // no cache yet is normal, not an error
+
+    try{
+
+        json cache = json::parse(file);
+        return cache;
+        // TODO: parse the file into a json and return it
+        //       hint: json::parse(file)
+    }
+    catch (const json::exception&){
+        cerr << "cache unreadable, starting fresh\n";
+        return json::object();
+    }
+}
+
+void save_cache(const json& cache){
+    // TODO: use your existing savetofile(path, text) with cache.dump(2)
+    //       it already creates the cache/ folder for you
+    savetofile(CACHE_FILE,cache.dump(2));
+
+}
+
+
 void summarize_all_chunks(){
-    for (size_t k=0 ;k<chunks.size();k++){
-        Chunk& ch= chunks[k];
+    json cache = load_cache();
 
+    for (size_t k = 0; k < chunks.size(); k++){
+        Chunk& ch = chunks[k];
+        string key = fingerprint(ch.text);
 
-        cout<< "summarizing "<< k+1 << "/" << chunks.size()
-            << " (" << ch.filename << ", part "<< ch.index << " ) ...\n";
+        // TODO 1: if cache.contains(key):
+        //           fill ch.summary (and ch.useful) from it,
+        //           print "cached k+1/N", and continue
 
-        string summary = summarize_chunk(ch.text);
-
-        if (summary.empty()) {
-            cerr << "could not summarize: " << ch.filename << ", part " << ch.index << "\n";
-            continue;                         // leave summary empty = failed
-        }
-        if (summary.find("NO_CONTENT") == 0) {
-            ch.useful = false;
+        if (cache.contains(key)){
+            string stored = cache[key].get<string>();
+            if (stored == "NO_CONTENT") ch.useful = false;
+            else ch.summary = stored;
+            cout << "cached " << k + 1 << "/" << chunks.size() << "\n";
             continue;
         }
-        ch.summary = summary;
 
+        cout << "summarizing " << k + 1 << "/" << chunks.size() << " ...\n";
+        string summary = summarize_chunk(ch.text);
+
+        if (summary.empty()){
+            cout<<"could not summarize "<<k+1 <<"chunk\n";
+            continue;
+        }
+        // TODO 2: empty (failed): print the error line and continue. Do NOT cache it.
+
+
+        if (summary.find("NO_CONTENT")==0){
+            ch.useful=false;
+            cache[key]="NO_CONTENT";
+            save_cache(cache);
+            continue;
+        }
+        // TODO 3: starts with NO_CONTENT: set ch.useful = false,
+        //         and ALSO store it in the cache, so it is not retried on every launch
+        ch.summary=summary;
+        cache[key] = summary;        // this line was missing
+
+        save_cache(cache);
+        
+        // TODO 4: success: set ch.summary, then cache[key] = summary;
+        //         and call save_cache(cache) RIGHT NOW, inside the loop
     }
+
 }
 
 
