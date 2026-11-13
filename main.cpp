@@ -23,8 +23,9 @@ namespace fs= std::filesystem;
 
 const string PYTHON = "/Users/suyashsudhakarchavan/Desktop/projects/noteforge_ai/.venv/bin/python3";
 const string SCRIPT = "/Users/suyashsudhakarchavan/Desktop/projects/noteforge_ai/extract.py";
-const size_t token_budget = 20000;
+const size_t token_budget = 5000;
 
+const size_t RETRIEVE_LIMIT = 3000;
 
 const fs::path CACHE_FILE = "cache/summaries.json";
 
@@ -139,6 +140,7 @@ struct AiResult{
     string text;
     int status=0;
     string error;
+    double retry_after =0;
 };
 
 
@@ -175,6 +177,12 @@ set<string> extract_keywords(const string& question){
     return keywords;
 }
 
+
+
+
+size_t estimate_tokens( const string& text ){
+    return text.size()/4;
+}
 
 string to_lower(string s){
     transform(s.begin(),s.end(),s.begin(), ::tolower);
@@ -296,11 +304,6 @@ vector<string> chunk_text( const string& text , size_t max_chars , size_t overla
 
     return chunked_text;
 
-}
-
-
-size_t estimate_tokens( const string& text ){
-    return text.size()/4;
 }
 
 
@@ -445,8 +448,14 @@ AiResult askai_once(const json& history, bool show = true){
     }
 
     if ( res.status_code != 200){
-        return {"",(int)res.status_code, rawbody};
+        double ra = 0;
+        auto it = res.header.find("retry-after");
+        if (it != res.header.end()){
+            try { ra = stod(it->second); } catch (...) {}
+        }
+        return {"", (int)res.status_code, rawbody, ra};    
     }
+
     return {full,200,""};
 }
 
@@ -462,9 +471,11 @@ string askai(const json&history, bool show=true){
         }
 
         if (r.status==429 && attempt<4){
-            cerr<<"rate limited, waiting " << wait_seconds << " s (attempt " << attempt << "/4)\n";
-            this_thread::sleep_for(chrono::seconds(wait_seconds));
-            wait_seconds*=2;
+            int wait = (int)ceil(max((double)wait_seconds, r.retry_after + 1));
+            cerr << "rate limited, waiting " << wait << " s (attempt " << attempt << "/4)\n";
+            this_thread::sleep_for(chrono::seconds(wait));
+            wait_seconds *= 2;
+
             continue;
         }
         
@@ -476,6 +487,60 @@ string askai(const json&history, bool show=true){
 
     }
     return "";
+}
+
+
+
+string chat_with_retrieval(const string& question){
+    vector<size_t> picked = retrieve(question, RETRIEVE_LIMIT);
+
+    json request = history;          // a COPY, so the excerpts never end up in history
+
+    if (picked.empty()){
+        // TODO: push a system message into `request` saying that no matching
+        //       excerpts were found, and that the model must say the files
+        //       don't cover this instead of answering from general knowledge
+        request.push_back({
+            {"role" , "system"},
+            {"content", "No excerpts from the user's files matched this question. Tell the user the files do not appear to cover it. Do not answer from general knowledge."}
+        });
+    }
+
+    else{
+        string excerpts = "Excerpts from the user's files:\n\n";
+        for (size_t idx : picked){
+            // TODO: append a label like "[file: <name>, part: <index>]\n",
+            //       then chunks[idx].text, then a blank line
+            excerpts += "[file: " + chunks[idx].filename + ", part: " + to_string(chunks[idx].index) + "]\n";
+            excerpts += chunks[idx].text + "\n\n";
+        }
+
+        request.push_back({
+            {"role" , "system"},
+            {"content" , excerpts}
+        });
+
+        // TODO: push `excerpts` into `request` as a system message
+    }
+
+    request.push_back({{"role", "user"}, {"content", question}});
+
+    cout << "request size: ~" << estimate_tokens(request.dump()) << " tokens\n";   // temporary
+
+    string response = askai(request);
+
+    // TODO: if response is not empty, push the question (role "user") and
+    //       the response (role "assistant") into `history`. Not the excerpts.
+    if ( !response.empty() ){
+
+        if (!response.empty()){
+            history.push_back({{"role", "user"},      {"content", question}});
+            history.push_back({{"role", "assistant"}, {"content", response}});
+        }
+            
+    }
+    
+    return response;
 }
 
 
@@ -588,10 +653,7 @@ void readfile(const fs::path& p) {
         chunks.push_back(ch);
     }
 
-    history.push_back({
-        {"role", "system"},
-        {"content", "file name: " + p.filename().string() + "\n" + text + "\n"}
-    });
+    documents.push_back({p.filename().string(), text});
 }
 
 
@@ -662,6 +724,8 @@ void summarize_all_chunks(){
         cout << "summarizing " << k + 1 << "/" << chunks.size() << " ...\n";
         string summary = summarize_chunk(ch.text);
 
+        cout << "RAW REPLY [" << summary << "]\n";
+        cout << "CHUNK STARTS [" << ch.text.substr(0, 60) << "]\n";
         if (summary.empty()){
             cout<<"could not summarize "<<k+1 <<"chunk\n";
             continue;
@@ -901,9 +965,51 @@ int main(int argc,char* argv[]){
     for(auto &file : files){
         readfile(file);
     }
-    json base = history;
 
     cout << "total tokens spend : " << total_token << " , budget : " << token_budget << "\n" ;
+
+
+    bool large_mode = total_token > token_budget;
+
+    if (large_mode){
+        cout << "folder exceeds budget, summarizing chunks ...\n";
+        summarize_all_chunks();
+    }
+
+    // ---- Task 2 goes here ----
+
+    if (!large_mode){
+        for (const auto& [name, text] : documents){
+            history.push_back({
+                {"role", "system"},
+                {"content", "file name: " + name + "\n" + text + "\n"}
+            });
+        }
+    }
+    else{
+        string index = "The user has these files:\n";
+        // TODO: for each (name, text) in documents:
+        //         count how many chunks in `chunks` have that filename
+        //         append "name: N parts\n" to index
+
+        for (const auto& [name,text] : documents){
+            size_t parts=0;
+            for ( const auto& c:chunks){
+                if ( c.filename == name) parts++;      
+            }
+
+            index += name + ": " + to_string(parts) + " parts\n";
+
+        }
+
+        history.push_back({
+            {"role", "system"},
+            {"content", index}
+        });
+    }
+
+    json base = history;  
+
 
     if (total_token > token_budget) {
         cout << "folder exceeds budget, summarizing chunks ...\n";
